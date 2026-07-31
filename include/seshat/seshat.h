@@ -42,6 +42,7 @@ Notes:
 
 #include <stddef.h>
 #include <stdint.h>
+#include <string.h>
 
 // ===========================
 // Data Types
@@ -190,6 +191,58 @@ sht_status sht_builder_serialize(
     sht_builder*, void** out_buffer, uint64_t* out_bytes
 );
 
+// ===========================
+// Little endian reads
+
+static inline uint32_t sht_read_u32(const void* p) {
+    const uint8_t* b = (const uint8_t*)p;
+    return  (uint32_t)b[0] | ((uint32_t)b[1] << 8) | ((uint32_t)b[2] << 16) | ((uint32_t)b[3] << 24);
+}
+ 
+static inline uint64_t sht_read_u64(const void* p) {
+    const uint8_t* b = (const uint8_t*)p; uint64_t v = 0;
+    for (int i = 7; i >= 0; i--) v = (v << 8) | (uint64_t)b[i];
+    return v;
+}
+
+static inline int64_t sht_read_i64(const void* p) {
+    const uint8_t* b = (const uint8_t*)p; uint64_t v = 0;
+    for (int i = 7; i >= 0; i--) v = (v << 8) | (uint64_t)b[i];
+    return (int64_t)v;
+}
+
+static inline double sht_read_double(const void* p) {
+    const uint8_t* b = (const uint8_t*)p; uint64_t bits = 0;
+    for (int i = 7; i >= 0; i--) bits = (bits << 8) | (uint64_t)b[i];
+    double value; memcpy(&value, &bits, sizeof(value));
+    return value;
+}
+
+// ===========================
+// Little endian writes
+
+static inline void sht_write_u32(uint8_t* dst, uint64_t* pos, uint32_t value) {
+    for (int i = 0; i < 4; ++i) dst[*pos + i] = (uint8_t)(value >> (8 * i)); *pos += 4;
+}
+
+static inline void sht_write_u64(uint8_t* dst, uint64_t* pos, uint64_t value) {
+    for (int i = 0; i < 8; ++i) dst[*pos + i] = (uint8_t)(value >> (8 * i)); *pos += 8;
+}
+
+static inline void sht_write_i64(uint8_t* result, uint64_t* position, int64_t value) {
+    uint64_t bits; memcpy(&bits, &value, sizeof(bits));
+    sht_write_u64(result, position, bits);
+}
+
+static inline void sht_write_double(uint8_t* result, uint64_t* position, double value) {
+    uint64_t bits; memcpy(&bits, &value, sizeof(bits));
+    sht_write_u64(result, position, bits);
+}
+
+static inline void sht_write_bytes(uint8_t* result, uint64_t* position, const void* src, uint64_t size) {
+    memcpy(result + *position, src, size); *position += size;
+}
+
 #endif /* SESHAT_H */
 
 #ifdef SESHAT_IMPL
@@ -198,7 +251,6 @@ sht_status sht_builder_serialize(
 // Depedency
 
 #include <stdlib.h>
-#include <string.h>
 #include <zstd.h>
 
 // ===========================
@@ -234,58 +286,7 @@ static inline uint64_t align8(uint64_t x) {
     return (x + 7ull) & ~7ull;
 }
 
-// Little endian reads
-
-static inline uint32_t read_le32(const void* p) {
-    const uint8_t* b = (const uint8_t*)p;
-    return  (uint32_t)b[0] | ((uint32_t)b[1] << 8) | ((uint32_t)b[2] << 16) | ((uint32_t)b[3] << 24);
-}
- 
-static inline uint64_t read_le64(const void* p) {
-    const uint8_t* b = (const uint8_t*)p; uint64_t v = 0;
-    for (int i = 7; i >= 0; i--) v = (v << 8) | (uint64_t)b[i];
-    return v;
-}
-
-static inline int64_t read_le64_signed(const void* p) {
-    const uint8_t* b = (const uint8_t*)p; uint64_t v = 0;
-    for (int i = 7; i >= 0; i--) v = (v << 8) | (uint64_t)b[i];
-    return (int64_t)v;
-}
-
-static inline double read_le_double(const void* p) {
-    const uint8_t* b = (const uint8_t*)p; uint64_t bits = 0;
-    for (int i = 7; i >= 0; i--) bits = (bits << 8) | (uint64_t)b[i];
-    double value; memcpy(&value, &bits, sizeof(value));
-    return value;
-}
-
-// Little endian writes
-
-static inline void write_le32(uint8_t* dst, uint64_t* pos, uint32_t value) {
-    for (int i = 0; i < 4; ++i) dst[*pos + i] = (uint8_t)(value >> (8 * i)); *pos += 4;
-}
-
-static inline void write_le64(uint8_t* dst, uint64_t* pos, uint64_t value) {
-    for (int i = 0; i < 8; ++i) dst[*pos + i] = (uint8_t)(value >> (8 * i)); *pos += 8;
-}
-
-static inline void write_le64_signed(uint8_t* result, uint64_t* position, int64_t value) {
-    uint64_t bits; memcpy(&bits, &value, sizeof(bits));
-    write_le64(result, position, bits);
-}
-
-static inline void write_double(uint8_t* result, uint64_t* position, double value) {
-    uint64_t bits; memcpy(&bits, &value, sizeof(bits));
-    write_le64(result, position, bits);
-}
-
-static inline void write_bytes(uint8_t* result, uint64_t* position, const void* src, uint64_t size) {
-    memcpy(result + *position, src, size); *position += size;
-}
-
 // Compare Ops
-
 // Lexicographics name comparison
 static int name_comp(uint8_t a_length, const uint8_t* a, uint8_t b_length, const uint8_t* b) {
     uint8_t min_length = a_length < b_length ? a_length : b_length;
@@ -329,10 +330,10 @@ typedef struct view_entry {
 static inline view_entry view_read_index(const sht_view* viewer, uint32_t entry) {
     const uint8_t* p = (const uint8_t*)viewer->buffer + viewer->index_begin + (uint64_t)entry * 24;
     view_entry out = {
-        .name_offset = read_le32(p + 0),
-        .type        = read_le32(p + 4),
-        .data_bytes  = read_le64(p + 8),
-        .data_offset = read_le64(p + 16)
+        .name_offset = sht_read_u32(p + 0),
+        .type        = sht_read_u32(p + 4),
+        .data_bytes  = sht_read_u64(p + 8),
+        .data_offset = sht_read_u64(p + 16)
     };
     return out;
 }
@@ -372,12 +373,12 @@ sht_status sht_create_view(sht_view** target, const sht_view_create_info* info) 
     if (memcmp(buf, MAGIC_VALUE, 8) != 0) return sht_status_err_bad_file;
  
     // Version - only version 0 is implemented
-    uint64_t version = read_le64(buf + 8);
+    uint64_t version = sht_read_u64(buf + 8);
     if (version != 0) return sht_status_err_bad_version;
  
-    uint32_t index_bytes   = read_le32(buf + 16);
-    uint32_t names_bytes   = read_le32(buf + 20);
-    uint64_t content_bytes = read_le64(buf + 24);
+    uint32_t index_bytes   = sht_read_u32(buf + 16);
+    uint32_t names_bytes   = sht_read_u32(buf + 20);
+    uint64_t content_bytes = sht_read_u64(buf + 24);
  
     // Index entries are fixed 24 bytes each
     if (index_bytes % 24 != 0) return sht_status_err_bad_file;
@@ -497,7 +498,7 @@ sht_status sht_view_get_as_int64(sht_view* viewer, uint32_t entry, int64_t* out)
     if (!view_data_in_bounds(viewer, idx.data_offset, idx.data_bytes)) return sht_status_err_bad_file;  // Ensure bounds
  
     const uint8_t* p = (const uint8_t*)viewer->buffer + viewer->content_begin + idx.data_offset;
-    *out = read_le64_signed(p); return sht_status_ok;
+    *out = sht_read_i64(p); return sht_status_ok;
 }
  
 sht_status sht_view_get_as_float64(sht_view* viewer, uint32_t entry, double* out) {
@@ -510,7 +511,7 @@ sht_status sht_view_get_as_float64(sht_view* viewer, uint32_t entry, double* out
     if (!view_data_in_bounds(viewer, idx.data_offset, idx.data_bytes)) return sht_status_err_bad_file;  // Ensure bounds
  
     const uint8_t* p = (const uint8_t*)viewer->buffer + viewer->content_begin + idx.data_offset;
-    *out = read_le_double(p); return sht_status_ok;
+    *out = sht_read_double(p); return sht_status_ok;
 }
  
 // Zero-copy: hands back a pointer straight into the source buffer, no allocation
@@ -537,7 +538,7 @@ sht_status sht_view_get_as_uncompressed_size(sht_view* viewer, uint32_t entry, u
     if (!view_data_in_bounds(viewer, idx.data_offset, idx.data_bytes))                  return sht_status_err_bad_file;         // Ensure bounds
  
     const uint8_t* p = (const uint8_t*)viewer->buffer + viewer->content_begin + idx.data_offset;
-    *out_bytes = read_le64(p); return sht_status_ok;
+    *out_bytes = sht_read_u64(p); return sht_status_ok;
 }
  
 // Decompresses fresh into the caller-supplied buffer every call - result is never cached
@@ -551,7 +552,7 @@ sht_status sht_view_get_as_decompress(sht_view* viewer, uint32_t entry, uint64_t
     if (!view_data_in_bounds(viewer, idx.data_offset, idx.data_bytes))                  return sht_status_err_bad_file;         // Ensure bounds
  
     const uint8_t* p = (const uint8_t*)viewer->buffer + viewer->content_begin + idx.data_offset;
-    uint64_t uncompressed_size = read_le64(p); const uint8_t* compressed_data  = p + 8; uint64_t compressed_bytes = idx.data_bytes - 8;
+    uint64_t uncompressed_size = sht_read_u64(p); const uint8_t* compressed_data  = p + 8; uint64_t compressed_bytes = idx.data_bytes - 8;
  
     if (out_buf_size < uncompressed_size) return sht_status_err_buffer_too_small;   // Ensure out buffer size
     size_t written = ZSTD_decompress(out_buf, (size_t)out_buf_size, compressed_data, (size_t)compressed_bytes);
@@ -841,11 +842,11 @@ sht_status sht_builder_serialize(sht_builder* builder, void** out_buffer, uint64
     uint64_t position = 0;
 
     // Write header
-    write_bytes(result, &position, MAGIC_VALUE, 8);
-    write_le64(result,  &position, 0); // Version
-    write_le32(result,  &position, index_bytes);
-    write_le32(result,  &position, name_bytes);
-    write_le64(result,  &position, content_bytes);
+    sht_write_bytes(result, &position, MAGIC_VALUE, 8);
+    sht_write_u64(result,  &position, 0); // Version
+    sht_write_u32(result,  &position, index_bytes);
+    sht_write_u32(result,  &position, name_bytes);
+    sht_write_u64(result,  &position, content_bytes);
 
     // Write index
     uint32_t name_offset = 0;
@@ -855,10 +856,10 @@ sht_status sht_builder_serialize(sht_builder* builder, void** out_buffer, uint64
         builder_entry* entry = &builder->entries[i];
         data_offset = align8(data_offset); // Spec: each content starts at 8-byte alignment
 
-        write_le32(result, &position, name_offset);
-        write_le32(result, &position, entry->type);
-        write_le64(result, &position, entry_data_bytes(entry));
-        write_le64(result, &position, data_offset);
+        sht_write_u32(result, &position, name_offset);
+        sht_write_u32(result, &position, entry->type);
+        sht_write_u64(result, &position, entry_data_bytes(entry));
+        sht_write_u64(result, &position, data_offset);
 
         name_offset += entry->name_length + 1;
         data_offset += entry_data_bytes(entry);
@@ -867,8 +868,8 @@ sht_status sht_builder_serialize(sht_builder* builder, void** out_buffer, uint64
     // Write names
     for (uint32_t i = 0; i < builder->entries_count; ++i) {
         builder_entry* entry = &builder->entries[i];
-        write_bytes(result, &position, &entry->name_length, 1);
-        write_bytes(result, &position, entry->name, entry->name_length);
+        sht_write_bytes(result, &position, &entry->name_length, 1);
+        sht_write_bytes(result, &position, entry->name, entry->name_length);
     }
 
     // Write content
@@ -878,17 +879,17 @@ sht_status sht_builder_serialize(sht_builder* builder, void** out_buffer, uint64
 
         switch (entry->type) {
         case sht_type_int64: {
-            write_le64_signed(result, &position, entry->value.int64);
+            sht_write_i64(result, &position, entry->value.int64);
         } break;
         case sht_type_float64: {
-            write_double(result, &position, entry->value.float64);
+            sht_write_double(result, &position, entry->value.float64);
         } break;
         case sht_type_text_compressed: case sht_type_binary_compressed: {
-            write_le64 (result, &position, entry->value.data_block.uncompressed);
-            write_bytes(result, &position, entry->value.data_block.begin, entry->value.data_block.length);
+            sht_write_u64 (result, &position, entry->value.data_block.uncompressed);
+            sht_write_bytes(result, &position, entry->value.data_block.begin, entry->value.data_block.length);
         } break;
         case sht_type_text: case sht_type_binary: {
-            write_bytes(result, &position, entry->value.data_block.begin, entry->value.data_block.length);
+            sht_write_bytes(result, &position, entry->value.data_block.begin, entry->value.data_block.length);
         } break;
         }
     }
