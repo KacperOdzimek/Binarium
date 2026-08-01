@@ -1,12 +1,12 @@
-# Seshat
+# Binarium
 
-Seshat is a lightweight, minimalist binary data format designed to support user-defined formats. It provides a simple indexed structure for efficient embedding of arbitrary data blocks, metadata, and binary assets while keeping access predictable and reasonably fast (O(log n)).
+Binarium is a lightweight, minimalist binary data format designed to support user-defined formats. It provides a simple indexed structure for efficient embedding of arbitrary data blocks, metadata, and binary assets while keeping access predictable and reasonably fast (O(log n)).
 
 # Example
 
 ```c
-#define SESHAT_IMPL
-#include "seshat/seshat.h"
+#define BINARIUM_IMPL
+#include "binarium/binarium.h"
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -14,7 +14,7 @@ int main(void) {
     // Build a document
     sht_builder* b; sht_create_builder(&b);
     sht_builder_add_int64(b, "score", 1337);
-    sht_builder_add_text (b, "title", 13, "Hello Seshat", sht_access_read_unowned);
+    sht_builder_add_text (b, "title", 15, "Hello Binarium", sht_access_read_unowned);
 
     void* file; uint64_t bytes;
     sht_builder_serialize(b, &file, &bytes); // Serialize file (possibly for file disc write)
@@ -40,18 +40,18 @@ int main(void) {
 
 # Contents
 
-This repository contains Seshat standard documents in ``formats`` folder, and a C99 single-header-library for seshat read/write inside ``include/seshat``.
+This repository contains binarium standard documents in ``formats`` folder, and a C99 single-header-library for binarium read/write inside ``include/binarium``.
 
 # Building
 
-Seshat reader/viewer library is implemented as a single-header-library. To build it, in a .c file include:
+Binarium reader/viewer library is implemented as a single-header-library. To build it, in a .c file include:
 ```
-#define SESHAT_IMPL
-#include "seshat/seshat.h"
+#define BINARIUM_IMPL
+#include "binarium/binarium.h"
 ```
 Preferably use an empty file, to avoid naming collision.  
 
-Seshat depends on the Zstandard (Zstd) compression library. You must install a version compatible with the format version specified by the Seshat specification. https://github.com/facebook/zstd
+Binarium depends on the Zstandard (Zstd) compression library. You must install a version compatible with the format version specified by the Binarium specification. https://github.com/facebook/zstd
 
 When compiling your application, ensure the Zstandard headers are available in your include path and the library is linked.
 
@@ -65,7 +65,7 @@ Also implementation does not support machines that use ``double`` standard other
 
 | Index | Markdown Document | Changes | Implementations |
 | - | - | - | - |
-| 0 | [Format Version 0](formats/V0.md) | First Version | [C99 API](include/seshat/seshat.h)
+| 0 | [Format Version 0](formats/V0.md) | First Version | [C99 API](include/binarium/binarium.h)
 
 ## License
 
