@@ -5,7 +5,7 @@ This file provides a builder and zero-copy view API for the Binarium V0 format.
 
 ----------------------------------------------------------------
 Code info:
-- sht prefix
+- biu prefix
 - BINARIUM_IMPL macro to build
 - libzstd >= 1.5.5 dependant
 
