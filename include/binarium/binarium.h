@@ -275,7 +275,7 @@ typedef char static_assert_pointer_size[(sizeof(void*) == 8) ? 1 : -1];
 #define HEADER_BYTES 32u
 #define LAST_TYPE biu_type_binary_compressed
 static const uint8_t MAGIC_VALUE[8] = {
-    'S','E','S','H','A','T','!','?'
+    'B','I','N','A','R','I','U','M'
 };
 
 // ===========================

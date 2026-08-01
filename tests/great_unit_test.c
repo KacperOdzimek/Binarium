@@ -478,5 +478,5 @@ void main(void) {
     printf("All good\n");
 }
 
-#define binarium_IMPL
+#define BINARIUM_IMPL
 #include "../include/binarium/binarium.h"
