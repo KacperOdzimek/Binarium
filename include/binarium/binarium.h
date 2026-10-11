@@ -34,11 +34,10 @@ Notes:
 - biu_builder does not detect duplicate names on add operations, the biu_status_err_duplicate_names error can only be returned
     by biu_builder_serialize. This allows easier implementation and O(1) insertions. Upon adding duplicate name builder become unserializable
 - biu_create_viewer fully validates the file (checksum, layout, padding, names, labels) before returning, so it reads the
-    whole buffer once. Files that are not in the canonical form the spec describes are rejected as malformed. Compressed
-    data is only checked when decompressed, UTF-8 text is not checked by the viewer
+    whole buffer once. Files that are not in the canonical form the spec describes are rejected as malformed. 
+    Compressed data is only checked when decompressed
 - The buffer given to a viewer must stay valid and must not be modified while the viewer exists
 - Memory given to the builder with biu_access_read_unowned must stay valid and unmodified until biu_builder_serialize returns
-- biu_builder_add_utf8 and biu_builder_add_utf8_compressed reject text that is not well-formed UTF-8
 - On failure, output parameters of create / serialize functions are set to NULL (and 0 for sizes)
 */
 
@@ -58,10 +57,8 @@ typedef enum biu_type {
     biu_type_int                = 0,
     biu_type_float              = 1,
     biu_type_label              = 2,
-    biu_type_utf8               = 3,
-    biu_type_binary             = 4,
-    biu_type_utf8_compressed    = 5,
-    biu_type_binary_compressed  = 6
+    biu_type_binary             = 3,
+    biu_type_binary_compressed  = 4
 } biu_type;
 
 // ===========================
@@ -83,7 +80,6 @@ typedef enum biu_status {
 
     biu_status_err_duplicate_names,     // Builder: Two entries with same name were added
     biu_status_err_too_many_entries,    // Builder: Exceeded maximum entries count
-    biu_status_err_invalid_utf8,        // Builder: Given text is not well-formed UTF-8
 } biu_status;
 
 // ===========================
@@ -195,19 +191,8 @@ biu_status biu_builder_add_label(
     biu_builder*, const char* name, const char* value, biu_access access
 );
 
-// Text must be well-formed UTF-8, otherwise biu_status_err_invalid_utf8 is returned
-biu_status biu_builder_add_utf8(
-    biu_builder*, const char* name, uint64_t bytes, const char* text, biu_access access
-);
-
 biu_status biu_builder_add_binary(
     biu_builder*, const char* name, uint64_t bytes, const void* data, biu_access access
-);
-
-// Text must be well-formed UTF-8, otherwise biu_status_err_invalid_utf8 is returned
-// Level = zstd compression level; pass <= 0 for sane default
-biu_status biu_builder_add_utf8_compressed(
-    biu_builder*, const char* name, uint64_t bytes, const char* text, int level
 );
 
 // Level = zstd compression level; pass <= 0 for sane default
@@ -428,32 +413,6 @@ static int biu_is_valid_ascii(const uint8_t* s, uint64_t length) {
     return 1;
 }
 
-// Checks well-formed UTF-8 (RFC 3629): no overlong forms, no surrogates, nothing above U+10FFFF
-static int biu_is_valid_utf8(const uint8_t* s, uint64_t length) {
-    uint64_t i = 0;
-    while (i < length) {
-        uint8_t c = s[i];
-        if (c < 0x80) { i++; continue; }
-
-        uint64_t follow;                    // Number of continuation bytes
-        uint8_t  lo = 0x80, hi = 0xBF;      // Allowed range of the first continuation byte
-        
-        if      (c >= 0xC2 && c <= 0xDF) { follow = 1; }
-        else if (c >= 0xE0 && c <= 0xEF) { follow = 2; if (c == 0xE0) lo = 0xA0; else if (c == 0xED) hi = 0x9F; }
-        else if (c >= 0xF0 && c <= 0xF4) { follow = 3; if (c == 0xF0) lo = 0x90; else if (c == 0xF4) hi = 0x8F; }
-        else return 0;
-
-        if (length - i - 1 < follow)        return 0;
-        if (s[i + 1] < lo || s[i + 1] > hi) return 0;
-        for (uint64_t k = 2; k <= follow; ++k) {
-            if ((s[i + k] & 0xC0) != 0x80) return 0;
-        }
-        i += follow + 1;
-    }
-
-    return 1;
-}
-
 // Checks every byte is zero (padding)
 static int biu_is_zero(const uint8_t* s, uint64_t length) {
     for (uint64_t i = 0; i < length; ++i) {
@@ -589,11 +548,11 @@ static biu_status biu_validate_entries(const biu_viewer* view) {
             if (idx.data_bytes > BIU_MAX_STRING) return biu_status_err_malformed_file;
         } break;
         // At least 8 bytes for uncompressed size
-        case biu_type_utf8_compressed: case biu_type_binary_compressed: {
+        case biu_type_binary_compressed: {
             if (idx.data_bytes < 8) return biu_status_err_malformed_file;
         } break;
         // No constrain
-        case biu_type_utf8: case biu_type_binary: break;
+        case biu_type_binary: break;
         }
 
         // Content layout. chunk_end <= content_bytes <= UINT64_MAX - 7 (checked on creation), align8 cannot wrap
@@ -815,7 +774,7 @@ biu_status biu_viewer_get_uncompressed_size(biu_viewer* view, uint32_t entry, ui
     if (entry >= view->entries)             return biu_status_err_no_entry;
 
     biu_view_entry idx = biu_view_read_index(view, entry);
-    if (idx.type != biu_type_utf8_compressed && idx.type != biu_type_binary_compressed) return biu_status_err_type_mismatch;
+    if (idx.type != biu_type_binary_compressed) return biu_status_err_type_mismatch;
     if (!biu_data_in_content_bounds(view, idx.data_offset, idx.data_bytes)) return biu_status_err_malformed_file;
     if (idx.data_bytes < 8) return biu_status_err_malformed_file;
 
@@ -829,7 +788,7 @@ biu_status biu_viewer_get_decompress(biu_viewer* view, uint32_t entry, uint64_t 
     if (entry >= view->entries) return biu_status_err_no_entry;
 
     biu_view_entry idx = biu_view_read_index(view, entry);
-    if (idx.type != biu_type_utf8_compressed && idx.type != biu_type_binary_compressed) return biu_status_err_type_mismatch;
+    if (idx.type != biu_type_binary_compressed) return biu_status_err_type_mismatch;
     if (!biu_data_in_content_bounds(view, idx.data_offset, idx.data_bytes)) return biu_status_err_malformed_file;
     if (idx.data_bytes < 8)                                                 return biu_status_err_malformed_file;
 
@@ -1026,26 +985,10 @@ biu_status biu_builder_add_label(biu_builder* builder, const char* name, const c
     biu_push_entry(builder); return biu_status_ok;
 }
 
-biu_status biu_builder_add_utf8(biu_builder* builder, const char* name, uint64_t bytes, const char* text, biu_access access) {
-    if (!builder || !name || !text) return biu_status_err_null_pointer;
-    if (!biu_is_valid_utf8((const uint8_t*)text, bytes)) return biu_status_err_invalid_utf8;
-    biu_status status = biu_prepare_entry(builder, name, biu_type_utf8); if (status) return status;
-    status = biu_link_data(&builder->entries[builder->entries_count], bytes, text, access); if (status) return status;
-    biu_push_entry(builder); return biu_status_ok;
-}
-
 biu_status biu_builder_add_binary(biu_builder* builder, const char* name, uint64_t bytes, const void* data, biu_access access) {
     if (!builder || !name || !data) return biu_status_err_null_pointer;
     biu_status status = biu_prepare_entry(builder, name, biu_type_binary); if (status) return status;
     status = biu_link_data(&builder->entries[builder->entries_count], bytes, data, access); if (status) return status;
-    biu_push_entry(builder); return biu_status_ok;
-}
-
-biu_status biu_builder_add_utf8_compressed(biu_builder* builder, const char* name, uint64_t bytes, const char* text, int level) {
-    if (!builder || !name || !text) return biu_status_err_null_pointer;
-    if (!biu_is_valid_utf8((const uint8_t*)text, bytes)) return biu_status_err_invalid_utf8;
-    biu_status status = biu_prepare_entry(builder, name, biu_type_utf8_compressed); if (status) return status;
-    status = biu_link_data_and_compress(&builder->entries[builder->entries_count], bytes, text, level); if (status) return status;
     biu_push_entry(builder); return biu_status_ok;
 }
 
@@ -1069,9 +1012,7 @@ static inline int biu_entry_data_bytes(const biu_builder_entry* entry, uint64_t*
     case biu_type_int:                  *out = 8;                       return 1;
     case biu_type_float:                *out = 8;                       return 1;
     case biu_type_label:                *out = entry->as_bytes.length;  return 1;
-    case biu_type_utf8:                 *out = entry->as_bytes.length;  return 1;
     case biu_type_binary:               *out = entry->as_bytes.length;  return 1;
-    case biu_type_utf8_compressed:      return biu_add_u64(8, entry->as_bytes.length, out);
     case biu_type_binary_compressed:    return biu_add_u64(8, entry->as_bytes.length, out);
     } return 0; // unreachable
 }
@@ -1170,10 +1111,10 @@ biu_status biu_builder_serialize(biu_builder* builder, void** out_buffer, uint64
         case biu_type_float: {
             biu_write_double(result, &position, entry->as_float);
         } break;
-        case biu_type_label: case biu_type_utf8: case biu_type_binary: {
+        case biu_type_label: case biu_type_binary: {
             biu_write_bytes(result, &position, entry->as_bytes.begin, entry->as_bytes.length);
         } break;
-        case biu_type_utf8_compressed: case biu_type_binary_compressed: {
+        case biu_type_binary_compressed: {
             biu_write_u64  (result, &position, entry->as_bytes.uncompressed);
             biu_write_bytes(result, &position, entry->as_bytes.begin, entry->as_bytes.length);
         } break;

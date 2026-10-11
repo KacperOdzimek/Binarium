@@ -57,21 +57,6 @@ static void test_builder_add_float(void) {
     biu_free_builder(builder);
 }
 
-static void test_builder_add_utf8_copy(void) {
-    biu_builder* builder = NULL;
-    void* buffer = NULL;
-    size_t bytes = 0;
-
-    const char text[] = "hello world";
-
-    assert(biu_create_builder(&builder) == biu_status_ok);
-    assert(biu_builder_add_utf8(builder, "text", sizeof(text) - 1, text, biu_access_make_copy) == biu_status_ok);
-    assert(biu_builder_serialize(builder, &buffer, &bytes) == biu_status_ok);
-
-    free(buffer);
-    biu_free_builder(builder);
-}
-
 static void test_builder_add_binary_copy(void) {
     biu_builder* builder = NULL;
     void* buffer = NULL;
@@ -81,34 +66,6 @@ static void test_builder_add_binary_copy(void) {
 
     assert(biu_create_builder(&builder) == biu_status_ok);
     assert(biu_builder_add_binary(builder, "bin", sizeof(data), data, biu_access_make_copy) == biu_status_ok);
-    assert(biu_builder_serialize(builder, &buffer, &bytes) == biu_status_ok);
-
-    free(buffer);
-    biu_free_builder(builder);
-}
-
-static void test_builder_add_empty_text(void) {
-    biu_builder* builder = NULL;
-    void* buffer = NULL;
-    size_t bytes = 0;
-
-    assert(biu_create_builder(&builder) == biu_status_ok);
-    assert(biu_builder_add_utf8(builder, "empty", 0, "", biu_access_make_copy) == biu_status_ok);
-    assert(biu_builder_serialize(builder, &buffer, &bytes) == biu_status_ok);
-
-    free(buffer);
-    biu_free_builder(builder);
-}
-
-static void test_builder_add_compressed_text(void) {
-    biu_builder* builder = NULL;
-    void* buffer = NULL;
-    size_t bytes = 0;
-
-    const char* text = "compressed text payload";
-
-    assert(biu_create_builder(&builder) == biu_status_ok);
-    assert(biu_builder_add_utf8_compressed(builder, "text", strlen(text), text, 1) == biu_status_ok);
     assert(biu_builder_serialize(builder, &buffer, &bytes) == biu_status_ok);
 
     free(buffer);
@@ -204,37 +161,6 @@ static void test_roundtrip_float(void) {
     assert(biu_create_viewer(&viewer, &info) == biu_status_ok);
     assert(biu_viewer_get_as_float(viewer, 0, &value) == biu_status_ok);
     assert(value == 1.25);
-
-    biu_free_viewer(viewer);
-    free(buffer);
-    biu_free_builder(builder);
-}
-
-static void test_roundtrip_utf8_zero_copy(void) {
-    biu_builder* builder = NULL;
-    biu_viewer* viewer = NULL;
-    void* buffer = NULL;
-    size_t bytes = 0;
-    uint64_t text_bytes = 0;
-    const uint8_t* ptr = NULL;
-
-    const char text[] = "zero copy";
-
-    assert(biu_create_builder(&builder) == biu_status_ok);
-    assert(biu_builder_add_utf8(builder, "text", strlen(text), text, biu_access_make_copy) == biu_status_ok);
-    assert(biu_builder_serialize(builder, &buffer, &bytes) == biu_status_ok);
-
-    biu_viewer_create_info info = {
-        .access = biu_access_read_unowned,
-        .buffer = buffer,
-        .bytes = bytes
-    };
-
-    assert(biu_create_viewer(&viewer, &info) == biu_status_ok);
-    assert(biu_viewer_get_bytes(viewer, 0, &text_bytes, &ptr) == biu_status_ok);
-
-    assert(text_bytes == strlen(text));
-    assert(memcmp(ptr, text, text_bytes) == 0);
 
     biu_free_viewer(viewer);
     free(buffer);
@@ -356,26 +282,6 @@ static void test_grand_roundtrip(void) {
         assert(biu_builder_add_float(builder, name, i * 0.5) == biu_status_ok);
     }
 
-    /* Text entries */
-    const char text1[] = "The quick brown fox jumps over the lazy dog";
-    const char text2[] = "binarium grand roundtrip test payload";
-
-    assert(biu_builder_add_utf8(
-        builder,
-        "description",
-        sizeof(text1) - 1,
-        text1,
-        biu_access_make_copy
-    ) == biu_status_ok);
-
-    assert(biu_builder_add_utf8_compressed(
-        builder,
-        "compressed_text",
-        sizeof(text2) - 1,
-        text2,
-        1
-    ) == biu_status_ok);
-
     /* Large binary payload */
     assert(biu_builder_add_binary(
         builder,
@@ -398,7 +304,7 @@ static void test_grand_roundtrip(void) {
     assert(biu_create_viewer(&viewer, &info) == biu_status_ok);
 
     assert(biu_viewer_query_entry_count(viewer, &count) == biu_status_ok);
-    assert(count == 153); /* 100 ints + 50 floats + 3 payloads */
+    assert(count == 151); /* 100 ints + 50 floats + 1 payload */
 
     /* Verify integer entry */
     assert(biu_viewer_find(viewer, "int_42", &entry) == biu_status_ok);
@@ -456,10 +362,7 @@ void main(void) {
     test_builder_add_int();
     test_builder_add_negative_int();
     test_builder_add_float();
-    test_builder_add_utf8_copy();
     test_builder_add_binary_copy();
-    test_builder_add_empty_text();
-    test_builder_add_compressed_text();
     test_builder_add_compressed_binary();
     test_duplicate_names();
 
@@ -467,7 +370,6 @@ void main(void) {
 
     test_roundtrip_int();
     test_roundtrip_float();
-    test_roundtrip_utf8_zero_copy();
     test_viewer_query_entry_count();
     test_viewer_find_existing();
     test_viewer_find_missing();
