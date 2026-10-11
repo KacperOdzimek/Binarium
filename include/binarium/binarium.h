@@ -597,7 +597,7 @@ biu_status biu_create_viewer(biu_viewer** target, const biu_viewer_create_info* 
     if (memcmp(buf, BIU_MAGIC_VALUE, 8) != 0) return biu_status_err_malformed_file;
 
     // Version - only version 0 is implemented
-    if (biu_read_u64(buf + 8) != 0) return biu_status_err_unkown_version;
+    if (biu_read_u64(buf + 8) != 0) return biu_status_err_unknown_version;
 
     // Read sizing
     biu_viewer tmp;

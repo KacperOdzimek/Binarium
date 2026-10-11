@@ -357,7 +357,7 @@ static void test_viewer_query_name(void) {
     biu_free_builder(builder);
 }
 
-void main(void) {
+int main(void) {
     test_builder_create_destroy();
     test_builder_add_int();
     test_builder_add_negative_int();
