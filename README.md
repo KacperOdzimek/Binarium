@@ -45,7 +45,7 @@ This repository contains binarium standard documents in ``formats`` folder, and 
 
 # Building
 
-Binarium reader/viewer library is implemented as a single-header-library. To build it, in a .c file include:
+Binarium viewer/builder library is implemented as a single-header-library. To build it, in a .c file include:
 ```
 #define BINARIUM_IMPL
 #include "binarium/binarium.h"
@@ -59,7 +59,7 @@ When compiling your application, ensure the Zstandard headers are available in y
 # Portability
 
 Format uses uint64 for data sizes - which practically discards 32bit systems.
-The implementation also does not allow 32 bit systmes.
+The implementation also does not allow 32 bit systems.
 Also implementation does not support machines that use ``double`` standard other than ``IEEE 754 binary64.``
 
 # Versions

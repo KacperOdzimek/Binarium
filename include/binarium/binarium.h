@@ -32,7 +32,7 @@ Notes:
     to put a sane limit on uncompressed buffer allocation size
 - If access is biu_access_claim_ownership, ownership is only claimed if operation succeeded (returned biu_status_ok)
 - biu_builder does not detect duplicate names on add operations, the biu_status_err_duplicate_names error can only be returned
-    by biu_builder_serialize. This allows easier implementation and O(1) insertions. Upon adding duplicate name builder become unserializable
+    by biu_builder_serialize. This allows easier implementation and O(1) insertions. Upon adding duplicate name builder becomes unserializable
 - biu_create_viewer fully validates the file (checksum, layout, padding, names, labels) before returning, so it reads the
     whole buffer once. Files that are not in the canonical form the spec describes are rejected as malformed. 
     Compressed data is only checked when decompressed
@@ -45,7 +45,7 @@ Notes:
 #define BINARIUM_H
 
 // ===========================
-// Depedency
+// Dependency
 
 #include <stdint.h>
 #include <string.h>
@@ -74,7 +74,7 @@ typedef enum biu_status {
 
     biu_status_err_no_entry,            // Viewer:  Entry of name was not found or index does not exist
     biu_status_err_malformed_file,      // Viewer:  File is malformed
-    biu_status_err_unkown_version,      // Viewer:  Viewed file has version != 0
+    biu_status_err_unknown_version,     // Viewer:  Viewed file has version != 0
     biu_status_err_type_mismatch,       // Viewer:  Bad get operation, entry is not of this type
     biu_status_err_buffer_too_small,    // Viewer:  Buffer is to small to hold decompressed data
 
@@ -203,7 +203,7 @@ biu_status biu_builder_add_binary_compressed(
 // ===========================
 // Builder Serialization
 
-// Serializes to a a new buffer
+// Serializes to a new buffer
 // caller must free(*out_buffer) if status was biu_status_ok
 biu_status biu_builder_serialize(
     biu_builder*, void** out_buffer, uint64_t* out_bytes
@@ -432,7 +432,7 @@ static inline int biu_is_valid_access(biu_access access) {
         || access == biu_access_claim_ownership;
 }
 
-// Lexicographics name comparison
+// Lexicographical name comparison
 // < 0 means a first, 0 equal, > 0 means b first
 static int biu_name_comp(uint8_t a_length, const uint8_t* a, uint8_t b_length, const uint8_t* b) {
     uint8_t min_length = a_length < b_length ? a_length : b_length;
@@ -829,7 +829,7 @@ typedef struct biu_builder_entry {
             uint64_t    length;
             const void* begin;
         } as_bytes;
-    };
+    } value;
 } biu_builder_entry;
 
 struct biu_builder {
@@ -854,9 +854,9 @@ void biu_free_builder(biu_builder* builder) {
     if (!builder) return;
     for (uint32_t i = 0; i < builder->entries_count; i++) {
         biu_builder_entry* entry = &builder->entries[i];
-        if (biu_is_fixed_size_type(entry->type))    continue;
-        if (!entry->as_bytes.do_free)               continue;
-        free((void*)entry->as_bytes.begin);
+        if (biu_is_fixed_size_type(entry->type))continue;
+        if (!entry->value.as_bytes.do_free)     continue;
+        free((void*)entry->value.as_bytes.begin);
     }
     free(builder->entries);
     free(builder);
@@ -866,27 +866,27 @@ void biu_free_builder(biu_builder* builder) {
 static inline biu_status biu_link_data(biu_builder_entry* entry, uint64_t bytes, const void* data, biu_access access) {
     switch (access) {
     case biu_access_claim_ownership: {
-        entry->as_bytes.do_free = 1;
-        entry->as_bytes.length  = bytes;
-        entry->as_bytes.begin   = data;
+        entry->value.as_bytes.do_free = 1;
+        entry->value.as_bytes.length  = bytes;
+        entry->value.as_bytes.begin   = data;
     } break;
     case biu_access_read_unowned: {
-        entry->as_bytes.do_free = 0;
-        entry->as_bytes.length  = bytes;
-        entry->as_bytes.begin   = data;
+        entry->value.as_bytes.do_free = 0;
+        entry->value.as_bytes.length  = bytes;
+        entry->value.as_bytes.begin   = data;
     } break;
     case biu_access_make_copy: {
-        entry->as_bytes.length  = bytes;
+        entry->value.as_bytes.length  = bytes;
         if (bytes == 0) {
-            entry->as_bytes.do_free = 0;
-            entry->as_bytes.begin   = NULL;
+            entry->value.as_bytes.do_free = 0;
+            entry->value.as_bytes.begin   = NULL;
             break;
         }
         void* copy = malloc((size_t)bytes);
         if (!copy) return biu_status_err_allocation_failure;
         memcpy(copy, data, (size_t)bytes);
-        entry->as_bytes.do_free = 1;
-        entry->as_bytes.begin   = copy;
+        entry->value.as_bytes.do_free = 1;
+        entry->value.as_bytes.begin   = copy;
     } break;
     default: return biu_status_err_invalid_argument;    // Never leave the entry half-initialised
     }
@@ -913,10 +913,10 @@ static inline biu_status biu_link_data_and_compress(biu_builder_entry* entry, ui
     void* tmp = realloc(compressed, compressed_size ? compressed_size : 1);
     if (tmp) compressed = tmp;
 
-    entry->as_bytes.do_free      = 1;
-    entry->as_bytes.uncompressed = bytes;
-    entry->as_bytes.begin        = compressed;
-    entry->as_bytes.length       = compressed_size;
+    entry->value.as_bytes.do_free      = 1;
+    entry->value.as_bytes.uncompressed = bytes;
+    entry->value.as_bytes.begin        = compressed;
+    entry->value.as_bytes.length       = compressed_size;
 
     return biu_status_ok;
 }
@@ -964,7 +964,7 @@ biu_status biu_builder_add_int(biu_builder* builder, const char* name, int64_t v
     if (!builder || !name) return biu_status_err_null_pointer;
     biu_status status = biu_prepare_entry(builder, name, biu_type_int);
     if (status) return status;
-    builder->entries[builder->entries_count].as_int = value;
+    builder->entries[builder->entries_count].value.as_int = value;
     biu_push_entry(builder); return biu_status_ok;
 }
 
@@ -972,7 +972,7 @@ biu_status biu_builder_add_float(biu_builder* builder, const char* name, double 
     if (!builder || !name) return biu_status_err_null_pointer;
     biu_status status = biu_prepare_entry(builder, name, biu_type_float);
     if (status) return status;
-    builder->entries[builder->entries_count].as_float = value;
+    builder->entries[builder->entries_count].value.as_float = value;
     biu_push_entry(builder); return biu_status_ok;
 }
 
@@ -986,20 +986,20 @@ biu_status biu_builder_add_label(biu_builder* builder, const char* name, const c
 }
 
 biu_status biu_builder_add_binary(biu_builder* builder, const char* name, uint64_t bytes, const void* data, biu_access access) {
-    if (!builder || !name || !data) return biu_status_err_null_pointer;
+    if (!builder || !name || (!data && bytes != 0)) return biu_status_err_null_pointer;
     biu_status status = biu_prepare_entry(builder, name, biu_type_binary); if (status) return status;
     status = biu_link_data(&builder->entries[builder->entries_count], bytes, data, access); if (status) return status;
     biu_push_entry(builder); return biu_status_ok;
 }
 
 biu_status biu_builder_add_binary_compressed(biu_builder* builder, const char* name, uint64_t bytes, const void* data, int level) {
-    if (!builder || !name || !data) return biu_status_err_null_pointer;
+    if (!builder || !name || (!data && bytes != 0)) return biu_status_err_null_pointer;
     biu_status status = biu_prepare_entry(builder, name, biu_type_binary_compressed); if (status) return status;
     status = biu_link_data_and_compress(&builder->entries[builder->entries_count], bytes, data, level); if (status) return status;
     biu_push_entry(builder); return biu_status_ok;
 }
 
-// Lexicographics name comparison for qsort of builder entry objects
+// Lexicographical name comparison for qsort of builder entry objects
 static int biu_name_comp_for_builder_entries(const void* a, const void* b) {
     const biu_builder_entry* entry_a = (const biu_builder_entry*)a;
     const biu_builder_entry* entry_b = (const biu_builder_entry*)b;
@@ -1009,11 +1009,11 @@ static int biu_name_comp_for_builder_entries(const void* a, const void* b) {
 // Get entry content size
 static inline int biu_entry_data_bytes(const biu_builder_entry* entry, uint64_t* out) {
     switch (entry->type) {
-    case biu_type_int:                  *out = 8;                       return 1;
-    case biu_type_float:                *out = 8;                       return 1;
-    case biu_type_label:                *out = entry->as_bytes.length;  return 1;
-    case biu_type_binary:               *out = entry->as_bytes.length;  return 1;
-    case biu_type_binary_compressed:    return biu_add_u64_checked(8, entry->as_bytes.length, out);
+    case biu_type_int:                  *out = 8;                               return 1;
+    case biu_type_float:                *out = 8;                               return 1;
+    case biu_type_label:                *out = entry->value.as_bytes.length;    return 1;
+    case biu_type_binary:               *out = entry->value.as_bytes.length;    return 1;
+    case biu_type_binary_compressed:    return biu_add_u64_checked(8, entry->value.as_bytes.length, out);
     } return 0; // unreachable
 }
 
@@ -1107,17 +1107,17 @@ biu_status biu_builder_serialize(biu_builder* builder, void** out_buffer, uint64
         const biu_builder_entry* entry = &builder->entries[i];
         switch (entry->type) {
         case biu_type_int: {
-            biu_write_i64(result, &position, entry->as_int);
+            biu_write_i64(result, &position, entry->value.as_int);
         } break;
         case biu_type_float: {
-            biu_write_double(result, &position, entry->as_float);
+            biu_write_double(result, &position, entry->value.as_float);
         } break;
         case biu_type_label: case biu_type_binary: {
-            biu_write_bytes(result, &position, entry->as_bytes.begin, entry->as_bytes.length);
+            biu_write_bytes(result, &position, entry->value.as_bytes.begin, entry->value.as_bytes.length);
         } break;
         case biu_type_binary_compressed: {
-            biu_write_u64  (result, &position, entry->as_bytes.uncompressed);
-            biu_write_bytes(result, &position, entry->as_bytes.begin, entry->as_bytes.length);
+            biu_write_u64  (result, &position, entry->value.as_bytes.uncompressed);
+            biu_write_bytes(result, &position, entry->value.as_bytes.begin, entry->value.as_bytes.length);
         } break;
         }
     }
