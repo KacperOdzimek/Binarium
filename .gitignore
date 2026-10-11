@@ -1,0 +1,15 @@
+*
+
+!.gitignore
+!.gitattributes
+!LICENSE.md
+!README.md
+
+!formats/
+!formats/**
+
+!include/
+!include/**
+
+!tests/
+!tests/**

@@ -1,4 +1,4 @@
-#include "../include/binarium/binarium.h"
+#include "binarium/binarium.h"
 
 #include <assert.h>
 #include <stdint.h>
@@ -381,4 +381,4 @@ void main(void) {
 }
 
 #define BINARIUM_IMPL
-#include "../include/binarium/binarium.h"
+#include "binarium/binarium.h"
