@@ -391,7 +391,7 @@ static inline uint64_t biu_align8(uint64_t x) {
 }
 
 // Overflow-checked a + b. Returns 0 on overflow
-static inline int biu_add_u64(uint64_t a, uint64_t b, uint64_t* out) {
+static inline int biu_add_u64_checked(uint64_t a, uint64_t b, uint64_t* out) {
     if (a > UINT64_MAX - b) return 0;
     *out = a + b;
     return 1;
@@ -400,7 +400,7 @@ static inline int biu_add_u64(uint64_t a, uint64_t b, uint64_t* out) {
 // Overflow-checked align up to 8 bytes. Returns 0 on overflow
 static inline int biu_align8_checked(uint64_t x, uint64_t* out) {
     uint64_t sum;
-    if (!biu_add_u64(x, 7, &sum)) return 0;
+    if (!biu_add_u64_checked(x, 7, &sum)) return 0;
     *out = sum & ~7ull;
     return 1;
 }
@@ -1013,7 +1013,7 @@ static inline int biu_entry_data_bytes(const biu_builder_entry* entry, uint64_t*
     case biu_type_float:                *out = 8;                       return 1;
     case biu_type_label:                *out = entry->as_bytes.length;  return 1;
     case biu_type_binary:               *out = entry->as_bytes.length;  return 1;
-    case biu_type_binary_compressed:    return biu_add_u64(8, entry->as_bytes.length, out);
+    case biu_type_binary_compressed:    return biu_add_u64_checked(8, entry->as_bytes.length, out);
     } return 0; // unreachable
 }
 
@@ -1038,9 +1038,11 @@ biu_status biu_builder_serialize(biu_builder* builder, void** out_buffer, uint64
         name_bytes += 1u + curr->name_length;
 
         uint64_t data_bytes;
-        if (!biu_align8_checked(content_bytes, &content_bytes))         return biu_status_err_allocation_failure;   // Spec: each content starts at 8-byte alignment
-        if (!biu_entry_data_bytes(curr, &data_bytes))                   return biu_status_err_allocation_failure;
-        if (!biu_add_u64(content_bytes, data_bytes, &content_bytes))    return biu_status_err_allocation_failure;
+
+        // Spec: each content starts at 8-byte alignment
+        if (!biu_align8_checked(content_bytes, &content_bytes))             return biu_status_err_allocation_failure;
+        if (!biu_entry_data_bytes(curr, &data_bytes))                       return biu_status_err_allocation_failure;
+        if (!biu_add_u64_checked(content_bytes, data_bytes, &content_bytes))return biu_status_err_allocation_failure;
 
         if (i == 0) continue;
 
@@ -1055,10 +1057,10 @@ biu_status biu_builder_serialize(biu_builder* builder, void** out_buffer, uint64
     uint64_t index_bytes   = (uint64_t)builder->entries_count * BIU_ENTRY_BYTES;
     uint64_t content_begin = biu_align8((uint64_t)BIU_HEADER_BYTES + index_bytes + name_bytes);
     uint64_t content_end, footer_begin, file_size;
-    if (!biu_add_u64(content_begin, content_bytes, &content_end))   return biu_status_err_allocation_failure;
-    if (!biu_align8_checked(content_end, &footer_begin))            return biu_status_err_allocation_failure;
-    if (!biu_add_u64(footer_begin, BIU_FOOTER_BYTES, &file_size))   return biu_status_err_allocation_failure;
-    if (file_size > (uint64_t)SIZE_MAX)                             return biu_status_err_allocation_failure;
+    if (!biu_add_u64_checked(content_begin, content_bytes, &content_end))   return biu_status_err_allocation_failure;
+    if (!biu_align8_checked(content_end, &footer_begin))                    return biu_status_err_allocation_failure;
+    if (!biu_add_u64_checked(footer_begin, BIU_FOOTER_BYTES, &file_size))   return biu_status_err_allocation_failure;
+    if (file_size > (uint64_t)SIZE_MAX)                                     return biu_status_err_allocation_failure;
 
     // Alloc with calloc to ensure padding bytes are 0-initialized
     uint8_t* result = (uint8_t*)calloc(1, (size_t)file_size);
@@ -1103,7 +1105,6 @@ biu_status biu_builder_serialize(biu_builder* builder, void** out_buffer, uint64
     for (uint32_t i = 0; i < builder->entries_count; ++i) {
         position = biu_align8(position); // Spec: each content starts at 8-byte alignment
         const biu_builder_entry* entry = &builder->entries[i];
-
         switch (entry->type) {
         case biu_type_int: {
             biu_write_i64(result, &position, entry->as_int);
